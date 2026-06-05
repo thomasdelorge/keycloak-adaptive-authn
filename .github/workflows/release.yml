@@ -105,6 +105,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          ref: ${{ github.ref }}
 
       - name: Download build artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -123,16 +124,25 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          TAG_MSG="$(git tag -l "${GITHUB_REF_NAME}" --format='%(contents)')"
+          TAG_MSG=""
+          TAG_OBJECT_TYPE="$(git cat-file -t "refs/tags/${GITHUB_REF_NAME}" 2>/dev/null || true)"
+          if [ "${TAG_OBJECT_TYPE}" = "tag" ]; then
+            # Annotated tag only; do not fall back to the peeled commit message
+            TAG_MSG="$(git tag -l "${GITHUB_REF_NAME}" --format='%(contents)')"
+          elif [ "${TAG_OBJECT_TYPE}" = "commit" ]; then
+            echo "::warning::Tag ${GITHUB_REF_NAME} is lightweight (no message). Create an annotated tag: git tag -a ${GITHUB_REF_NAME} -m '...'" >&2
+          fi
+          PACKAGES_URL="https://github.com/${GITHUB_REPOSITORY}/packages/"
           MAVEN_PKG="io.github.mabartos.keycloak-adaptive-authn"
-          MAVEN_URL="https://github.com/${GITHUB_REPOSITORY}/pkgs/maven/${MAVEN_PKG}/${VERSION}"
           {
             if [ -n "${TAG_MSG}" ]; then
-              printf '%s\n\n' "${TAG_MSG}"
+              printf '%s' "${TAG_MSG}"
             fi
+            echo ""
+            echo ""
             echo "## Maven package"
             echo ""
-            echo "[${MAVEN_PKG} @ ${VERSION}](${MAVEN_URL})"
+            echo "[${MAVEN_PKG} @ ${VERSION}](${PACKAGES_URL})"
             echo ""
             echo '```xml'
             echo "<dependency>"
@@ -154,5 +164,6 @@ jobs:
           name: ${{ github.ref_name }}
           body_path: release-body.md
           generate_release_notes: false
+          overwrite: true
           files: |
             dist/*
