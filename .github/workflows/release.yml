@@ -1,35 +1,134 @@
-name: Publish Release to GitHub Packages
+# Builds release artifacts on version tags, publishes to GitHub Releases and GitHub Packages.
+
+name: Release
 
 on:
-  release:
-    types: [published]
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Release version to publish (e.g. 0.4.8)'
-        required: true
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
 
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
+          server-id: github
+          server-username: ${{ github.actor }}
+          server-password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set release version
-        run: ./set-version.sh ${{ github.event.release.tag_name || inputs.version }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [ -z "${VERSION}" ]; then
+            echo "Could not derive Maven version from tag: ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+          echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
+          ./set-version.sh "${VERSION}"
 
       - name: Deploy to GitHub Packages
-        run: ./mvnw deploy -DskipTests -Pbuild-distribution
+        run: |
+          set -euo pipefail
+          ./mvnw -B -ntp deploy -pl core -am \
+            -Dmaven.test.skip=true \
+            -Pbuild-distribution
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare release assets
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          CORE_JAR="core/target/keycloak-adaptive-authn-${VERSION}.jar"
+          THEME_JAR="core/src/main/assembly/adaptive-authn-theme.jar"
+          REALM_JSON="core/src/main/assembly/adaptive-realm.json"
+          test -f "${CORE_JAR}"
+          test -f "${THEME_JAR}"
+          test -f "${REALM_JSON}"
+          cp "${CORE_JAR}" dist/
+          cp "${THEME_JAR}" dist/
+          cp "${REALM_JSON}" dist/
+          (cd dist && for f in *.jar *.json; do sha256sum "${f}" > "${f}.sha256"; done)
+          ls -la dist/
+          (cd dist && cat *.sha256)
+
+      - name: Upload artifacts for release job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-assets
+          path: dist/
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-assets
+          path: dist
+
+      - name: Verify release assets
+        run: |
+          set -euo pipefail
+          test -f dist/adaptive-authn-theme.jar
+          test -f dist/adaptive-realm.json
+          test -n "$(find dist -maxdepth 1 -name 'keycloak-adaptive-authn-*.jar' -print -quit)"
+
+      - name: Compose release notes
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          TAG_MSG="$(git tag -l "${GITHUB_REF_NAME}" --format='%(contents)')"
+          MAVEN_PKG="io.github.mabartos.keycloak-adaptive-authn"
+          MAVEN_URL="https://github.com/${GITHUB_REPOSITORY}/pkgs/maven/${MAVEN_PKG}/${VERSION}"
+          {
+            if [ -n "${TAG_MSG}" ]; then
+              printf '%s\n\n' "${TAG_MSG}"
+            fi
+            echo "## Maven package"
+            echo ""
+            echo "[${MAVEN_PKG} @ ${VERSION}](${MAVEN_URL})"
+            echo ""
+            echo '```xml'
+            echo "<dependency>"
+            echo "  <groupId>io.github.mabartos</groupId>"
+            echo "  <artifactId>keycloak-adaptive-authn</artifactId>"
+            echo "  <version>${VERSION}</version>"
+            echo "</dependency>"
+            echo '```'
+          } > release-body.md
+          cat release-body.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: release-body.md
+          generate_release_notes: false
+          files: |
+            dist/*
