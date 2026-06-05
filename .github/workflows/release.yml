@@ -28,9 +28,23 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           # No cache: avoid reusing ~/.m2 Sonatype resolution failures from prior release runs
-          server-id: github
-          server-username: ${{ github.repository_owner }}
-          server-password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Maven for GitHub Packages
+        run: |
+          mkdir -p "${HOME}/.m2"
+          cat > "${HOME}/.m2/settings.xml" <<SETTINGS_EOF
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
+                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0 https://maven.apache.org/xsd/settings-1.2.0.xsd">
+            <servers>
+              <server>
+                <id>github</id>
+                <username>${{ github.actor }}</username>
+                <password>${{ secrets.GITHUB_TOKEN }}</password>
+              </server>
+            </servers>
+          </settings>
+          SETTINGS_EOF
 
       - name: Set release version
         run: |
@@ -56,8 +70,6 @@ jobs:
             -Dmaven.test.skip=true \
             -Pbuild-distribution \
             -Dgithub.packages.repository="${GITHUB_REPOSITORY}"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prepare release assets
         run: |
