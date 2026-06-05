@@ -1,4 +1,5 @@
 # Builds release artifacts on version tags, publishes to GitHub Releases and GitHub Packages.
+# Maven cache is disabled here: a restored cache can keep Sonatype 403 markers (*.lastUpdated).
 
 name: Release
 
@@ -26,7 +27,7 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-          cache: maven
+          # No cache: avoid reusing ~/.m2 Sonatype resolution failures from prior release runs
           server-id: github
           server-username: ${{ github.repository_owner }}
           server-password: ${{ secrets.GITHUB_TOKEN }}
@@ -34,19 +35,24 @@ jobs:
       - name: Set release version
         run: |
           set -euo pipefail
-          ./set-version.sh "${GITHUB_REF_NAME}"
-          VERSION="$(./mvnw -q -DforceStdout help:evaluate -Dexpression=project.version)"
-          if [[ "${VERSION}" == v* ]] || [[ "${VERSION}" == V* ]]; then
-            echo "Maven version must not include tag prefix 'v': ${VERSION}" >&2
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [ -z "${VERSION}" ] || [[ "${VERSION}" == v* ]] || [[ "${VERSION}" == V* ]]; then
+            echo "Invalid Maven version from tag: ${GITHUB_REF_NAME}" >&2
             exit 1
           fi
           echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
+          # versions:set only; do not run help:evaluate (triggers full dependency resolution)
+          ./set-version.sh "${GITHUB_REF_NAME}"
 
       - name: Deploy to GitHub Packages
         run: |
           set -euo pipefail
+          KC_VERSION="$(grep -m1 '<keycloak.version>' pom.xml | sed -E 's/.*<keycloak.version>([^<]+).*/\1/')"
+          echo "Building against Keycloak ${KC_VERSION} (nightly)"
           echo "Publishing to https://maven.pkg.github.com/${GITHUB_REPOSITORY}"
-          ./mvnw -B -ntp deploy -pl core -am \
+          rm -rf "${HOME}/.m2/repository/org/keycloak"
+          find "${HOME}/.m2/repository" -name "*.lastUpdated" -delete 2>/dev/null || true
+          ./mvnw -B -ntp -U clean deploy -pl core -am \
             -Dmaven.test.skip=true \
             -Pbuild-distribution \
             -Dgithub.packages.repository="${GITHUB_REPOSITORY}"
@@ -123,6 +129,9 @@ jobs:
             echo "  <version>${VERSION}</version>"
             echo "</dependency>"
             echo '```'
+            echo ""
+            KC_VERSION="$(grep -m1 '<keycloak.version>' pom.xml | sed -E 's/.*<keycloak.version>([^<]+).*/\1/')"
+            echo "**Built against Keycloak:** \`${KC_VERSION}\` (nightly)"
           } > release-body.md
           cat release-body.md
 

@@ -9,6 +9,6 @@ if [ -z "${NEW_VERSION}" ] || [[ "${NEW_VERSION}" == v* ]] || [[ "${NEW_VERSION}
   exit 1
 fi
 
-./mvnw versions:set -DnewVersion="$NEW_VERSION"
+./mvnw versions:set -DnewVersion="$NEW_VERSION" -DgenerateBackupPoms=false
 
 echo "New version: $NEW_VERSION" >&2
