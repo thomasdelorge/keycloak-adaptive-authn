@@ -61,6 +61,8 @@
     <properties>
         <!-- Override in CI: -Dgithub.packages.repository=${{ github.repository }} -->
         <github.packages.repository>mabartos/keycloak-adaptive-authn</github.packages.repository>
+        <!-- Parent is not published; only core is deployed from CI -->
+        <maven.deploy.skip>true</maven.deploy.skip>
         <keycloak.version>999.0.0-SNAPSHOT</keycloak.version>
         <quarkus.version>3.33.1</quarkus.version>
 

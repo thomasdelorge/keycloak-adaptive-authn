@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   build:
@@ -27,23 +28,24 @@ jobs:
           distribution: 'temurin'
           cache: maven
           server-id: github
-          server-username: ${{ github.actor }}
+          server-username: ${{ github.repository_owner }}
           server-password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set release version
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-          if [ -z "${VERSION}" ]; then
-            echo "Could not derive Maven version from tag: ${GITHUB_REF_NAME}" >&2
+          ./set-version.sh "${GITHUB_REF_NAME}"
+          VERSION="$(./mvnw -q -DforceStdout help:evaluate -Dexpression=project.version)"
+          if [[ "${VERSION}" == v* ]] || [[ "${VERSION}" == V* ]]; then
+            echo "Maven version must not include tag prefix 'v': ${VERSION}" >&2
             exit 1
           fi
           echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
-          ./set-version.sh "${VERSION}"
 
       - name: Deploy to GitHub Packages
         run: |
           set -euo pipefail
+          echo "Publishing to https://maven.pkg.github.com/${GITHUB_REPOSITORY}"
           ./mvnw -B -ntp deploy -pl core -am \
             -Dmaven.test.skip=true \
             -Pbuild-distribution \
