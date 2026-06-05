@@ -120,41 +120,20 @@ jobs:
           test -f dist/adaptive-realm.json
           test -n "$(find dist -maxdepth 1 -name 'keycloak-adaptive-authn-*.jar' -print -quit)"
 
-      - name: Compose release notes
+      - name: Compose release notes from tag message
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
           TAG_MSG=""
           TAG_OBJECT_TYPE="$(git cat-file -t "refs/tags/${GITHUB_REF_NAME}" 2>/dev/null || true)"
           if [ "${TAG_OBJECT_TYPE}" = "tag" ]; then
             # Annotated tag only; do not fall back to the peeled commit message
             TAG_MSG="$(git tag -l "${GITHUB_REF_NAME}" --format='%(contents)')"
+            # Signed tags (-s): strip OpenPGP block appended to the message
+            TAG_MSG="$(printf '%s\n' "${TAG_MSG}" | sed '/-----BEGIN PGP SIGNATURE-----/,$d' | sed -e '${/^$/d;}')"
           elif [ "${TAG_OBJECT_TYPE}" = "commit" ]; then
             echo "::warning::Tag ${GITHUB_REF_NAME} is lightweight (no message). Create an annotated tag: git tag -a ${GITHUB_REF_NAME} -m '...'" >&2
           fi
-          PACKAGES_URL="https://github.com/${GITHUB_REPOSITORY}/packages/"
-          MAVEN_PKG="io.github.mabartos.keycloak-adaptive-authn"
-          {
-            if [ -n "${TAG_MSG}" ]; then
-              printf '%s' "${TAG_MSG}"
-            fi
-            echo ""
-            echo ""
-            echo "## Maven package"
-            echo ""
-            echo "[${MAVEN_PKG} @ ${VERSION}](${PACKAGES_URL})"
-            echo ""
-            echo '```xml'
-            echo "<dependency>"
-            echo "  <groupId>io.github.mabartos</groupId>"
-            echo "  <artifactId>keycloak-adaptive-authn</artifactId>"
-            echo "  <version>${VERSION}</version>"
-            echo "</dependency>"
-            echo '```'
-            echo ""
-            KC_VERSION="$(grep -m1 '<keycloak.version>' pom.xml | sed -E 's/.*<keycloak.version>([^<]+).*/\1/')"
-            echo "**Built against Keycloak:** \`${KC_VERSION}\` (nightly)"
-          } > release-body.md
+          printf '%s' "${TAG_MSG}" > release-body.md
           cat release-body.md
 
       - name: Create GitHub Release
