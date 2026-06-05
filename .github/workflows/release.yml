@@ -46,7 +46,8 @@ jobs:
           set -euo pipefail
           ./mvnw -B -ntp deploy -pl core -am \
             -Dmaven.test.skip=true \
-            -Pbuild-distribution
+            -Pbuild-distribution \
+            -Dgithub.packages.repository="${GITHUB_REPOSITORY}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
