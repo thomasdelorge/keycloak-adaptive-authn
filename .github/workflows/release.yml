@@ -5,7 +5,7 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      - "[0-9]*.[0-9]*.[0-9]*"
 
 permissions:
   contents: read
@@ -46,15 +46,13 @@ jobs:
 
       - name: Set release version
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${GITHUB_REF_NAME}"
           ./set-version.sh "${VERSION}"
           echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
 
       - name: Deploy to GitHub Packages
         run: |
           echo "Publishing to https://maven.pkg.github.com/${GITHUB_REPOSITORY}"
-          # rm -rf "${HOME}/.m2/repository/org/keycloak"
-          # find "${HOME}/.m2/repository" -name "*.lastUpdated" -delete 2>/dev/null || true
           ./mvnw -B -ntp -U clean deploy -pl core -am \
             -Dmaven.test.skip=true \
             -Pbuild-distribution \
