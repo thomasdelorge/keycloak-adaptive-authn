@@ -5,6 +5,7 @@ import io.github.mabartos.evaluator.browser.BrowserRiskEvaluator;
 import io.github.mabartos.evaluator.browser.BrowserRiskEvaluatorFactory;
 import io.github.mabartos.context.location.KnownLocationContext;
 import io.github.mabartos.evaluator.location.KnownLocationRiskEvaluatorFactory;
+import io.github.mabartos.evaluator.location.LocationEvaluatorSettings;
 import io.github.mabartos.spi.evaluator.RiskEvaluatorFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -95,6 +96,16 @@ class RiskBasedPoliciesUiTabPersistenceTest {
 
         assertThrows(ComponentValidationException.class,
                 () -> tab.validateConfiguration(null, realm, model));
+    }
+
+    @Test
+    void onCreate_persistsKnownLocationPrefetchSetting() throws Exception {
+        injectFactories(tab, List.of(new KnownLocationRiskEvaluatorFactory()));
+        var model = componentModel(Map.of(LocationEvaluatorSettings.PREFETCH_GEOIP_CONFIG, "false"));
+
+        tab.onCreate(null, realm, model);
+
+        assertEquals("false", realmAttributes.get(LocationEvaluatorSettings.PREFETCH_GEOIP_CONFIG));
     }
 
     @Test

@@ -52,6 +52,7 @@ public final class EvaluatorDocGenerator {
 
         Map<EvaluationPhase, List<RiskEvaluatorFactory>> byPhase = StreamSupport
                 .stream(ServiceLoader.load(RiskEvaluatorFactory.class).spliterator(), false)
+                .filter(RiskEvaluatorFactory::isVisibleInAdminUi)
                 .sorted(Comparator.comparing(RiskEvaluatorFactory::getName, String.CASE_INSENSITIVE_ORDER))
                 .collect(Collectors.groupingBy(
                         RiskEvaluatorFactory::evaluationPhase,

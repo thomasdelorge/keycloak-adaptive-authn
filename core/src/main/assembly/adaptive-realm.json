@@ -1356,7 +1356,6 @@
         "adaptive-algorithm-log-odds-bias" : [ "-0.5" ],
         "adaptive-evaluator-enabled-AiAccountTakeoverEvaluator" : [ "true" ],
         "adaptive-evaluator-enabled-BrowserRiskEvaluator" : [ "true" ],
-        "adaptive-evaluator-enabled-InitLocationRiskEvaluator" : [ "true" ],
         "adaptive-evaluator-enabled-LoginEventIpAddressRiskEvaluator" : [ "true" ],
         "adaptive-engine-enabled" : [ "true" ],
         "adaptive-audit-events-enabled" : [ "true" ],

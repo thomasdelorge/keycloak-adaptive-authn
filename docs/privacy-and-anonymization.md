@@ -149,7 +149,7 @@ Add to your privacy policy:
 
 Use separate geolocation evaluators that don't send data to AI:
 - `KnownLocationRiskEvaluator` - Compares to known safe locations
-- `InitLocationRiskEvaluator` - Detects first-time locations
+- `InitLocationRiskEvaluator` - Internal GeoIP prefetch for Known location
 
 These run locally and don't send data to third-party APIs.
 

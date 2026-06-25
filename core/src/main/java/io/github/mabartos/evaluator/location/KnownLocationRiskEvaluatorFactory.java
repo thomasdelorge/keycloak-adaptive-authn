@@ -36,7 +36,31 @@ public class KnownLocationRiskEvaluatorFactory implements RiskEvaluatorFactory {
 
     @Override
     public String getDescription() {
-        return "Compares the current login location (GeoIP) to the user's known locations after identification. Requires location context, enable Init location if this evaluator is active.";
+        return "Compares the current login location (GeoIP) to the user's known locations after identification.";
+    }
+
+    @Override
+    public List<ProviderConfigProperty> getAdditionalAdminConfigProperties() {
+        return ProviderConfigurationBuilder.create()
+                .property()
+                .name(LocationEvaluatorSettings.PREFETCH_GEOIP_CONFIG)
+                .label("Obtain location at start")
+                .helpText("Resolve the user's location at the start of authentication instead of waiting until "
+                        + "credentials are submitted. Improves performance by giving remote GeoIP services more "
+                        + "time to respond before the Known location evaluation. Has no effect when Known location "
+                        + "is disabled.")
+                .type(ProviderConfigProperty.BOOLEAN_TYPE)
+                .defaultValue(true)
+                .add()
+                .property()
+                .name(KnownLocationContext.TTL_DAYS_CONFIG)
+                .label("TTL (days)")
+                .helpText("Number of days before a known location stops providing a trust signal. "
+                        + "Expired entries are removed on successful login. Set to 0 to disable expiration.")
+                .type(ProviderConfigProperty.INTEGER_TYPE)
+                .defaultValue(KnownLocationContext.DEFAULT_TTL_DAYS)
+                .add()
+                .build();
     }
 
     @Override
@@ -52,19 +76,5 @@ public class KnownLocationRiskEvaluatorFactory implements RiskEvaluatorFactory {
     @Override
     public String getId() {
         return PROVIDER_ID;
-    }
-
-    @Override
-    public List<ProviderConfigProperty> getAdditionalAdminConfigProperties() {
-        return ProviderConfigurationBuilder.create()
-                .property()
-                .name(KnownLocationContext.TTL_DAYS_CONFIG)
-                .label("TTL (days)")
-                .helpText("Number of days before a known location stops providing a trust signal. "
-                        + "Expired entries are removed on successful login. Set to 0 to disable expiration.")
-                .type(ProviderConfigProperty.INTEGER_TYPE)
-                .defaultValue(KnownLocationContext.DEFAULT_TTL_DAYS)
-                .add()
-                .build();
     }
 }

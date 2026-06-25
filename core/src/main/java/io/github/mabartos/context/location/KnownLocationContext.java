@@ -21,6 +21,9 @@ import java.util.stream.Collectors;
 public class KnownLocationContext extends AbstractUserContext<Set<LocationData>> implements OnSuccessfulLoginCallback {
     private static final Logger logger = Logger.getLogger(KnownLocationContext.class);
     public static final String KNOWN_LOCATIONS_ATTR = "adaptive-location-known";
+    public static final String KNOWN_LOCATION_EVALUATOR = "KnownLocationRiskEvaluator";
+    public static final String KNOWN_LOCATION_ENABLED_CONFIG =
+            RiskEvaluatorFactory.isEnabledConfig(KNOWN_LOCATION_EVALUATOR);
     public static final String TTL_DAYS_SETTING_KEY = "ttl-days";
     public static final String TTL_DAYS_CONFIG = RiskEvaluatorFactory.getAdditionalSettingConfig(
             "KnownLocationRiskEvaluator", TTL_DAYS_SETTING_KEY);
@@ -73,6 +76,11 @@ public class KnownLocationContext extends AbstractUserContext<Set<LocationData>>
 
     @Override
     public void onSuccessfulLogin(@Nonnull RealmModel realm, @Nonnull UserModel user) {
+        if (!isKnownLocationTrackingEnabled(realm)) {
+            logger.trace("Known location evaluator is disabled, skipping known location tracking");
+            return;
+        }
+
         LocationContext locationContext = UserContexts.getContext(session, LocationContext.class);
         LocationData location = locationContext.getData(realm, user).orElse(null);
         if (location == null) {
@@ -136,5 +144,20 @@ public class KnownLocationContext extends AbstractUserContext<Set<LocationData>>
 
     private void removeMatchingLocation(Set<KnownLocationData> locations, KnownLocationData toRemove) {
         locations.removeIf(loc -> loc.matches(toRemove.getCountry(), toRemove.getCity()));
+    }
+
+    /**
+     * Whether known-location profile updates should run after login.
+     * Reads the realm enabled attribute only (no dependency on the evaluator package).
+     */
+    static boolean isKnownLocationTrackingEnabled(RealmModel realm) {
+        if (realm == null) {
+            return true;
+        }
+        var value = realm.getAttribute(KNOWN_LOCATION_ENABLED_CONFIG);
+        if (value == null || value.isBlank()) {
+            return true;
+        }
+        return Boolean.parseBoolean(value);
     }
 }

@@ -115,10 +115,10 @@ public class RiskBasedPoliciesUiTab implements UiTabProvider, UiTabProviderFacto
                     }
                 }));
 
-        riskEvaluatorFactories.forEach(evalFactory -> {
-            persistEvaluatorSettings(model, realm, evalFactory, "onCreate");
-            persistAdditionalEvaluatorSettings(model, realm, evalFactory, "onCreate");
-        });
+        riskEvaluatorFactories.stream()
+                .filter(RiskEvaluatorFactory::isVisibleInAdminUi)
+                .forEach(evalFactory -> persistEvaluatorSettings(model, realm, evalFactory, "onCreate"));
+        riskEvaluatorFactories.forEach(evalFactory -> persistAdditionalEvaluatorSettings(model, realm, evalFactory, "onCreate"));
     }
 
     /**
@@ -163,10 +163,10 @@ public class RiskBasedPoliciesUiTab implements UiTabProvider, UiTabProviderFacto
                     }
                 }));
 
-        riskEvaluatorFactories.forEach(f -> {
-            persistEvaluatorSettings(newModel, realm, f, "onUpdate");
-            persistAdditionalEvaluatorSettings(newModel, realm, f, "onUpdate");
-        });
+        riskEvaluatorFactories.stream()
+                .filter(RiskEvaluatorFactory::isVisibleInAdminUi)
+                .forEach(f -> persistEvaluatorSettings(newModel, realm, f, "onUpdate"));
+        riskEvaluatorFactories.forEach(f -> persistAdditionalEvaluatorSettings(newModel, realm, f, "onUpdate"));
     }
 
     private void persistEvaluatorSettings(ComponentModel model, RealmModel realm, RiskEvaluatorFactory evalFactory, String context) {
@@ -223,21 +223,23 @@ public class RiskBasedPoliciesUiTab implements UiTabProvider, UiTabProviderFacto
     }
 
     private void validateEvaluatorTrustValues(ComponentModel model) {
-        riskEvaluatorFactories.forEach(f -> {
-            var value = model.get(getTrustConfig(f.evaluatorClass()));
-            if (StringUtil.isBlank(value)) {
-                return;
-            }
-            try {
-                var trust = Double.parseDouble(value);
-                if (!Trust.isValid(trust)) {
-                    throw new NumberFormatException();
-                }
-            } catch (NumberFormatException e) {
-                throw new ComponentValidationException(
-                        "Risk Trust levels must be double values in range [0.0, 1.0]");
-            }
-        });
+        riskEvaluatorFactories.stream()
+                .filter(RiskEvaluatorFactory::isVisibleInAdminUi)
+                .forEach(f -> {
+                    var value = model.get(getTrustConfig(f.evaluatorClass()));
+                    if (StringUtil.isBlank(value)) {
+                        return;
+                    }
+                    try {
+                        var trust = Double.parseDouble(value);
+                        if (!Trust.isValid(trust)) {
+                            throw new NumberFormatException();
+                        }
+                    } catch (NumberFormatException e) {
+                        throw new ComponentValidationException(
+                                "Risk Trust levels must be double values in range [0.0, 1.0]");
+                    }
+                });
     }
 
     private void validateSubmittedAdditionalEvaluatorSettings(ComponentModel model) {
@@ -458,6 +460,7 @@ public class RiskBasedPoliciesUiTab implements UiTabProvider, UiTabProviderFacto
             List<RiskEvaluatorFactory> factories,
             RiskEvaluator.EvaluationPhase phase) {
         factories.stream()
+                .filter(RiskEvaluatorFactory::isVisibleInAdminUi)
                 .filter(f -> f.evaluationPhase() == phase)
                 .sorted(Comparator.comparing(RiskEvaluatorFactory::getName))
                 .flatMap(f -> evaluatorAdminProperties(f).stream())

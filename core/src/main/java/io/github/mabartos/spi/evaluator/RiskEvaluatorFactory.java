@@ -61,6 +61,14 @@ public interface RiskEvaluatorFactory extends ProviderFactory<RiskEvaluator>, En
     Class<? extends RiskEvaluator> evaluatorClass();
 
     /**
+     * Whether this evaluator appears in the realm admin Risk-based policies tab.
+     * Internal evaluators (e.g. Init location) return {@code false}.
+     */
+    default boolean isVisibleInAdminUi() {
+        return true;
+    }
+
+    /**
      * Extra realm admin fields shown after the standard enabled/trust controls.
      * Persisted as realm attributes (not evaluator enabled/trust keys).
      */
@@ -117,7 +125,11 @@ public interface RiskEvaluatorFactory extends ProviderFactory<RiskEvaluator>, En
     }
 
     static String isEnabledConfig(Class<? extends RiskEvaluator> evaluator) {
-        return ENABLED_CONFIG + "-" + evaluator.getSimpleName();
+        return isEnabledConfig(evaluator.getSimpleName());
+    }
+
+    static String isEnabledConfig(String evaluatorSimpleName) {
+        return ENABLED_CONFIG + "-" + evaluatorSimpleName;
     }
 
     static String getTrustConfig(Class<? extends RiskEvaluator> evaluator) {

@@ -178,6 +178,33 @@ class KnownLocationContextTest {
         assertThat(parsed.lastSeenEpochSeconds(), greaterThanOrEqualTo(loginTime));
     }
 
+    @Test
+    void onSuccessfulLogin_skipsTrackingWhenEvaluatorDisabled() {
+        var attributes = new HashMap<String, List<String>>();
+        var user = userWithAttributes(attributes);
+        var realm = realmWithEvaluatorEnabled(false);
+        var session = sessionWithLocation(new StaticLocationContext("Germany", "Berlin"));
+
+        new KnownLocationContext(session).onSuccessfulLogin(realm, user);
+
+        assertThat(attributes.containsKey(KnownLocationContext.KNOWN_LOCATIONS_ATTR), is(false));
+    }
+
+    private static RealmModel realmWithEvaluatorEnabled(boolean enabled) {
+        return (RealmModel) Proxy.newProxyInstance(
+                RealmModel.class.getClassLoader(),
+                new Class[]{RealmModel.class},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "getAttribute" -> method.getParameterCount() == 1
+                            && KnownLocationContext.KNOWN_LOCATION_ENABLED_CONFIG.equals(args[0])
+                            ? Boolean.toString(enabled)
+                            : null;
+                    case "setAttribute" -> null;
+                    default -> null;
+                }
+        );
+    }
+
     private static UserModel userWithAttributes(Map<String, List<String>> attributes) {
         return (UserModel) Proxy.newProxyInstance(
                 UserModel.class.getClassLoader(),

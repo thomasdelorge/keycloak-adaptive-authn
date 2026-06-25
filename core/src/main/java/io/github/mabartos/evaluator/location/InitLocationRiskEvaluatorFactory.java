@@ -41,11 +41,17 @@ public class InitLocationRiskEvaluatorFactory implements RiskEvaluatorFactory {
 
     @Override
     public String getDescription() {
-        return "Prepares GeoIP/location context for later evaluators.";
+        return "Internal prefetch of GeoIP/location context for Known location. "
+                + "Configured via Known location settings, not exposed in the admin UI.";
     }
 
     @Override
     public Class<? extends RiskEvaluator> evaluatorClass() {
         return InitLocationRiskEvaluator.class;
+    }
+
+    @Override
+    public boolean isVisibleInAdminUi() {
+        return false;
     }
 }
