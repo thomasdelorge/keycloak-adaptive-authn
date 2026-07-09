@@ -96,31 +96,42 @@ public class TypicalAccessTimeContext extends AbstractUserContext<TypicalAccessT
                 .getHour();
 
         CircularEwmaProfile profile = loadProfileFromAttributes(user)
-                .orElseGet(() -> new CircularEwmaProfile(ALPHA));
+                .orElseGet(() -> bootstrapFromLoginEvents(realm, user));
 
         profile.update(currentHour);
         saveProfile(user, profile);
     }
 
     /**
-     * Loads profile from user attributes or bootstraps from historical events if not found.
+     * Loads profile from user attributes or bootstraps in memory from historical events if not found.
+     * Does not persist: writes belong in {@link #onSuccessfulLogin} to avoid JPA flush during auth.
      */
     private CircularEwmaProfile loadOrBootstrapProfile(UserModel user, List<Event> loginEvents) {
-        return loadProfileFromAttributes(user).orElseGet(() -> {
-            // No valid profile exists - bootstrap from historical login events
-            logger.tracef("Bootstrapping time pattern for user %s from %d historical logins",
-                    user.getUsername(), loginEvents.size());
+        return loadProfileFromAttributes(user).orElseGet(() -> bootstrapFromEvents(user, loginEvents));
+    }
 
-            CircularEwmaProfile profile = new CircularEwmaProfile(ALPHA);
-            for (Event event : loginEvents) {
-                int hour = getHourFromEvent(event);
-                profile.update(hour);
-            }
+    private CircularEwmaProfile bootstrapFromLoginEvents(RealmModel realm, UserModel user) {
+        if (loginEvents == null) {
+            return new CircularEwmaProfile(ALPHA);
+        }
+        return loginEvents.getData(realm, user)
+                .map(events -> events.stream()
+                        .filter(e -> e.getType() == EventType.LOGIN)
+                        .toList())
+                .filter(events -> !events.isEmpty())
+                .map(events -> bootstrapFromEvents(user, events))
+                .orElseGet(() -> new CircularEwmaProfile(ALPHA));
+    }
 
-            // Save bootstrapped profile
-            saveProfile(user, profile);
-            return profile;
-        });
+    private CircularEwmaProfile bootstrapFromEvents(UserModel user, List<Event> loginEvents) {
+        logger.tracef("Bootstrapping time pattern for user %s from %d historical logins (in memory)",
+                user.getUsername(), loginEvents.size());
+
+        CircularEwmaProfile profile = new CircularEwmaProfile(ALPHA);
+        for (Event event : loginEvents) {
+            profile.update(getHourFromEvent(event));
+        }
+        return profile;
     }
 
     /**

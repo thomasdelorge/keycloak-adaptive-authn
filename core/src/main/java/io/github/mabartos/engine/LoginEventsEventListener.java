@@ -52,8 +52,7 @@ public class LoginEventsEventListener implements EventListenerProvider {
         var userId = event.getUserId();
         if (StringUtil.isBlank(userId)) return;
 
-        // Route attribute reads/writes to federated storage for non-imported users (e.g. READ_ONLY LDAP)
-        var user = FederatedStorageUserModelDelegate.wrapIfNeeded(session.users().getUserById(realm, userId), session, realm);
+        var user = wrapUserForAdaptiveWrites(session.users().getUserById(realm, userId), realm);
         if (user == null) {
             log.warnf("User with user ID '%s' does not exist.", userId);
             return;
@@ -65,20 +64,39 @@ public class LoginEventsEventListener implements EventListenerProvider {
         }
     }
 
+    /**
+     * Applies all deferred adaptive writes triggered by a successful login.
+     * User contexts and the continuous-evaluation timer share the same deferred-write delegate.
+     */
     protected void handleLogin(UserModel user, RealmModel realm) {
+        runOnSuccessfulLoginCallbacks(realm, user);
+        scheduleContinuousEvaluationIfNeeded(realm, user);
+    }
+
+    private void runOnSuccessfulLoginCallbacks(RealmModel realm, UserModel user) {
         session.getAllProviders(UserContext.class)
                 .stream()
-                .filter(context -> context instanceof OnSuccessfulLoginCallback)
-                .forEach(context -> ((OnSuccessfulLoginCallback) context).onSuccessfulLogin(realm, user));
+                .filter(OnSuccessfulLoginCallback.class::isInstance)
+                .map(OnSuccessfulLoginCallback.class::cast)
+                .forEach(callback -> callback.onSuccessfulLogin(realm, user));
+    }
 
+    private void scheduleContinuousEvaluationIfNeeded(RealmModel realm, UserModel user) {
         var timerScheduled = user.getFirstAttribute(USER_ATTRIBUTE_CONTINUOUS_EVALUATIONS_TIMER_SET);
-        if (!Boolean.parseBoolean(timerScheduled)) {
-            timerProvider.scheduleTask(new ScheduledContinuousRiskEvaluation(realm.getId(), user.getId()),
-                    Duration.ofMinutes(DEFAULT_CONTINUOUS_RISK_EVALUATION_PERIOD_MINUTES).toMillis(),
-                    getUserTimerName(user.getId()));
-            user.setAttribute(USER_ATTRIBUTE_CONTINUOUS_EVALUATIONS_TIMER_SET, List.of("true"));
-            log.debugf("Scheduled task for continuous risk evaluation was set. (User ID: '%s', period in minutes: '%d'", user.getId(), DEFAULT_CONTINUOUS_RISK_EVALUATION_PERIOD_MINUTES);
+        if (Boolean.parseBoolean(timerScheduled)) {
+            return;
         }
+        timerProvider.scheduleTask(
+                new ScheduledContinuousRiskEvaluation(realm.getId(), user.getId()),
+                Duration.ofMinutes(DEFAULT_CONTINUOUS_RISK_EVALUATION_PERIOD_MINUTES).toMillis(),
+                getUserTimerName(user.getId())
+        );
+        user.setAttribute(USER_ATTRIBUTE_CONTINUOUS_EVALUATIONS_TIMER_SET, List.of("true"));
+        log.debugf(
+                "Scheduled task for continuous risk evaluation was set. (User ID: '%s', period in minutes: '%d'",
+                user.getId(),
+                DEFAULT_CONTINUOUS_RISK_EVALUATION_PERIOD_MINUTES
+        );
     }
 
     private static class ScheduledContinuousRiskEvaluation implements ScheduledTask {
@@ -96,8 +114,7 @@ public class LoginEventsEventListener implements EventListenerProvider {
             var realm = session.realms().getRealm(realmId);
             session.getContext().setRealm(realm);
 
-            // Route attribute reads/writes to federated storage for non-imported users (e.g. READ_ONLY LDAP)
-            var user = FederatedStorageUserModelDelegate.wrapIfNeeded(session.users().getUserById(realm, userId), session, realm);
+            var user = DeferredUserAttributeDelegate.wrapForAdaptiveWrites(session.users().getUserById(realm, userId), session, realm);
             riskEngine.evaluateRisk(RiskEvaluator.EvaluationPhase.CONTINUOUS, realm, user);
         }
     }
@@ -109,6 +126,10 @@ public class LoginEventsEventListener implements EventListenerProvider {
 
     protected static String getUserTimerName(String userId) {
         return String.format("risk-evaluators-continuous-user-%s", userId);
+    }
+
+    private UserModel wrapUserForAdaptiveWrites(UserModel user, RealmModel realm) {
+        return DeferredUserAttributeDelegate.wrapForAdaptiveWrites(user, session, realm);
     }
 
     @Override

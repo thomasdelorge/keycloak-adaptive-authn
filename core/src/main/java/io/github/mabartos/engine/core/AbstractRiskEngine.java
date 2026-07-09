@@ -1,6 +1,6 @@
 package io.github.mabartos.engine.core;
 
-import io.github.mabartos.engine.FederatedStorageUserModelDelegate;
+import io.github.mabartos.engine.DeferredUserAttributeDelegate;
 import io.github.mabartos.spi.level.ResultRisk;
 import io.github.mabartos.spi.level.Risk;
 import io.github.mabartos.spi.context.UserContext;
@@ -111,8 +111,8 @@ public abstract class AbstractRiskEngine implements RiskEngine {
             return ResultRisk.invalid("Cannot execute risk score evaluation, because the user needs to be known");
         }
 
-        // Route attribute reads/writes to federated storage for non-imported users (e.g. READ_ONLY LDAP)
-        knownUser = FederatedStorageUserModelDelegate.wrapIfNeeded(knownUser, session, realm);
+        // Defer adaptive attribute writes until after the auth transaction (local and federated users)
+        knownUser = DeferredUserAttributeDelegate.wrapForAdaptiveWrites(knownUser, session, realm);
 
         final var storedRisk = storedRiskProvider.getStoredRisk(phase);
         if (storedRisk.isValid()) {

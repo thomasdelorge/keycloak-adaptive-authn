@@ -21,7 +21,7 @@ public interface RiskAuditPublisher {
     void recordLoginEvaluationFromStored(RealmModel realm, UserModel user);
 
     /**
-     * Persists all queued audit events immediately.
+     * Schedules persistence of all queued audit events after the current transaction completes.
      */
     void flushNow();
 

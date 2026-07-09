@@ -13,9 +13,11 @@ import org.jboss.logging.Logger;
 import org.keycloak.common.ClientConnection;
 import org.keycloak.events.EventBuilder;
 import org.keycloak.events.EventType;
+import org.keycloak.models.AbstractKeycloakTransaction;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
+import org.keycloak.models.utils.KeycloakModelUtils;
 import org.keycloak.utils.StringUtil;
 
 import java.util.ArrayList;
@@ -72,8 +74,9 @@ public class RiskEvaluationAuditPublisher implements RiskAuditPublisher {
 
     private final KeycloakSession session;
     private final StoredRiskProvider storedRiskProvider;
-    /** Per-request queue; add and {@link #flushNow()} run on the same thread for a given flow. */
+    /** Per-request queue; {@link #flushNow()} emits after the current transaction completes. */
     private final List<PendingAuditEvent> pending = new ArrayList<>();
+    private volatile boolean flushEnlisted = false;
 
     /**
      * Returns the single audit publisher for this {@link KeycloakSession} (shared by the risk engine and authenticators).
@@ -162,29 +165,73 @@ public class RiskEvaluationAuditPublisher implements RiskAuditPublisher {
     }
 
     /**
-     * Persists queued audit events (call from the Mutiny callback once evaluation finished).
+     * Schedules queued audit events for persistence after the current transaction completes.
+     * Avoids Hibernate "Flush during cascade is dangerous" when evaluation runs inside the auth transaction.
      */
     public void flushNow() {
+        if (pending.isEmpty()) {
+            return;
+        }
+        if (!session.getTransactionManager().isActive()) {
+            emitPendingEvents();
+            return;
+        }
+        enlistFlushAfterCompletion();
+    }
+
+    private void enlistFlushAfterCompletion() {
+        if (flushEnlisted) {
+            return;
+        }
+        flushEnlisted = true;
+        session.getTransactionManager().enlistAfterCompletion(new AbstractKeycloakTransaction() {
+            @Override
+            protected void commitImpl() {
+                emitPendingEvents();
+            }
+
+            @Override
+            protected void rollbackImpl() {
+                pending.clear();
+                flushEnlisted = false;
+            }
+        });
+    }
+
+    private void emitPendingEvents() {
+        flushEnlisted = false;
         if (pending.isEmpty()) {
             return;
         }
         var events = List.copyOf(pending);
         pending.clear();
 
-        for (PendingAuditEvent event : events) {
-            try {
-                switch (event) {
-                    case LoginAuditEvent login -> emitLogin(login);
-                    case RemediationAuditEvent remediation -> emitRemediation(remediation);
+        KeycloakModelUtils.runJobInTransaction(
+                session.getKeycloakSessionFactory(),
+                session.getContext(),
+                emitSession -> {
+                    for (PendingAuditEvent event : events) {
+                        try {
+                            switch (event) {
+                                case LoginAuditEvent login -> {
+                                    RealmModel realm = emitSession.realms().getRealm(login.realm().getId());
+                                    emitLogin(emitSession, realm, login);
+                                }
+                                case RemediationAuditEvent remediation -> {
+                                    RealmModel realm = emitSession.realms().getRealm(remediation.realm().getId());
+                                    emitRemediation(emitSession, realm, remediation);
+                                }
+                            }
+                        } catch (RuntimeException e) {
+                            logger.warnf(e, "Failed to publish risk evaluation audit event for user %s", event.userId());
+                        }
+                    }
                 }
-            } catch (RuntimeException e) {
-                logger.warnf(e, "Failed to publish risk evaluation audit event for user %s", event.userId());
-            }
-        }
+        );
     }
 
-    private void emitLogin(LoginAuditEvent snapshot) {
-        var builder = newEventBuilder(snapshot.realm(), snapshot.userId());
+    private void emitLogin(KeycloakSession emitSession, RealmModel realm, LoginAuditEvent snapshot) {
+        var builder = newEventBuilder(emitSession, realm, snapshot.userId());
         builder.event(EventType.CUSTOM_REQUIRED_ACTION)
                 .detail(DETAIL_SUBTYPE, SUBTYPE_LOGIN)
                 .detail(DETAIL_ALGORITHM, snapshot.algorithmId());
@@ -203,8 +250,8 @@ public class RiskEvaluationAuditPublisher implements RiskAuditPublisher {
         builder.storeImmediately(true).success();
     }
 
-    private void emitRemediation(RemediationAuditEvent snapshot) {
-        var builder = newEventBuilder(snapshot.realm(), snapshot.userId());
+    private void emitRemediation(KeycloakSession emitSession, RealmModel realm, RemediationAuditEvent snapshot) {
+        var builder = newEventBuilder(emitSession, realm, snapshot.userId());
         builder.event(EventType.CUSTOM_REQUIRED_ACTION)
                 .detail(DETAIL_SUBTYPE, SUBTYPE_REMEDIATION)
                 .detail(DETAIL_PHASE, RiskEvaluator.EvaluationPhase.CONTINUOUS.name())
@@ -244,10 +291,10 @@ public class RiskEvaluationAuditPublisher implements RiskAuditPublisher {
         );
     }
 
-    private EventBuilder newEventBuilder(RealmModel realm, String userId) {
-        EventBuilder builder = resolveClientConnection()
-                .map(connection -> new EventBuilder(realm, session, connection))
-                .orElseGet(() -> new EventBuilder(realm, session));
+    private EventBuilder newEventBuilder(KeycloakSession emitSession, RealmModel realm, String userId) {
+        EventBuilder builder = resolveClientConnection(emitSession)
+                .map(connection -> new EventBuilder(realm, emitSession, connection))
+                .orElseGet(() -> new EventBuilder(realm, emitSession));
         builder.user(userId);
         return builder;
     }
@@ -256,9 +303,9 @@ public class RiskEvaluationAuditPublisher implements RiskAuditPublisher {
      * HTTP client connection is only available during request-scoped flows (login).
      * Background tasks (e.g. continuous risk timer) must build events without it.
      */
-    private Optional<ClientConnection> resolveClientConnection() {
+    private static Optional<ClientConnection> resolveClientConnection(KeycloakSession emitSession) {
         try {
-            return Optional.ofNullable(session.getContext().getConnection());
+            return Optional.ofNullable(emitSession.getContext().getConnection());
         } catch (RuntimeException e) {
             logger.tracef("No request context for audit event IP: %s", e.getMessage());
             return Optional.empty();

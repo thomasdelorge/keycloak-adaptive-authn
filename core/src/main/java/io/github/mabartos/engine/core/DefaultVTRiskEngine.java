@@ -16,6 +16,7 @@
  */
 package io.github.mabartos.engine.core;
 
+import io.github.mabartos.engine.DeferredUserAttributeDelegate;
 import io.github.mabartos.spi.engine.RiskEngine;
 import io.github.mabartos.spi.evaluator.RiskEvaluator;
 import io.github.mabartos.spi.level.ResultRisk;
@@ -179,9 +180,17 @@ public class DefaultVTRiskEngine extends AbstractRiskEngine {
                                 session.getKeycloakSessionFactory(),
                                 session.getContext(),
                                 s -> {
-                                    // Fresh references from ISPN cache bound to session 's'
+                                    // Fresh references from ISPN cache bound to session 's'; reuse deferred writes from parent wrap
                                     var freshRealm = s.realms().getRealm(realm.getId());
-                                    var freshUser = knownUser != null ? s.users().getUserById(freshRealm, knownUser.getId()) : null;
+                                    UserModel freshUser = null;
+                                    if (knownUser != null) {
+                                        var freshBacking = s.users().getUserById(freshRealm, knownUser.getId());
+                                        if (freshBacking != null) {
+                                            freshUser = knownUser instanceof DeferredUserAttributeDelegate deferred
+                                                    ? deferred.withFreshDelegate(freshBacking, s, freshRealm)
+                                                    : DeferredUserAttributeDelegate.wrapForAdaptiveWrites(freshBacking, s, freshRealm);
+                                        }
+                                    }
 
                                     executeEvaluator(evaluator, freshRealm, freshUser, retries, results);
                                     completedEvaluators.put(evaluator, true);
