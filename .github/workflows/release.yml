@@ -62,7 +62,10 @@ jobs:
 
       - name: Build core and extensions
         run: |
-          ./mvnw -B -ntp -U clean install -pl extensions -am \
+          # -pl '!tests': full reactor except IT module; includes core and all extension submodules.
+          # -pl extensions -am only installs aggregator POMs, not ip-api/openrouter/ssf jars.
+          # build-distribution profile lives in core/pom.xml and requires core in the reactor.
+          ./mvnw -B -ntp -U clean install -pl '!tests' \
             -Dmaven.test.skip=true \
             -Pbuild-distribution
 
